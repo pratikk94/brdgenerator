@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "119566142295",
+    "project_id": "brd-generator-app",
+    "storage_bucket": "brd-generator-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:119566142295:android:afa6db4c1733c84a21cc12",
+        "android_client_info": {
+          "package_name": "com.example.brd_generator"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "119566142295-11ibnjcj3i9cgjtcr34d6nsfnhd10ldc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.brd_generator",
+            "certificate_hash": "cfdaec0a7c9b79962fe4df78d5cb82b2afba6396"
+          }
+        },
+        {
+          "client_id": "119566142295-11ibnjcj3i9cgjtcr34d6nsfnhd10ldc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDNoBYHrEJAihNUPiJ7h7DGRtAT4DR1xkw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "119566142295-11ibnjcj3i9cgjtcr34d6nsfnhd10ldc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
