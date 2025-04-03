@@ -2,6 +2,8 @@ import 'package:firebase_database/firebase_database.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class FirebaseService {
   // Singleton pattern
@@ -16,6 +18,9 @@ class FirebaseService {
   
   // Firebase Database reference
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   
   // User related methods
   
@@ -327,125 +332,136 @@ class FirebaseService {
   // Get all BRD documents (with Firebase priority and local fallback)
   Future<List<Map<String, dynamic>>> getAllBRDs() async {
     try {
-      // Try to get from Firebase first
-      final snapshot = await _dbRef.child('brds').get();
-      
-      if (snapshot.exists && snapshot.value != null) {
-        final dynamic rawData = snapshot.value;
-        if (rawData is Map) {
-          final List<Map<String, dynamic>> brds = [];
-          
-          rawData.forEach((key, value) {
-            if (value is Map) {
-              // Safely convert Map<dynamic, dynamic> to Map<String, dynamic>
-              final brdData = _convertToStringDynamicMap(value);
-              // Add the key as id
-              brdData['id'] = key.toString();
-              brds.add(brdData);
-            }
-          });
-          
-          // Sort by created date (newest first)
-          brds.sort((a, b) {
-            final dateA = a['createdAt'] != null ? DateTime.parse(a['createdAt'] as String) : DateTime.now();
-            final dateB = b['createdAt'] != null ? DateTime.parse(b['createdAt'] as String) : DateTime.now();
-            return dateB.compareTo(dateA);
-          });
-          
-          return brds;
-        }
-      }
-      
-      // If no data in Firebase, try local storage
-      return _getLocalBRDs();
+      final QuerySnapshot snapshot = await _firestore
+          .collection('brds')
+          .where('userId', isEqualTo: _auth.currentUser?.uid)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => {
+                'id': doc.id,
+                ...doc.data() as Map<String, dynamic>,
+              })
+          .toList();
     } catch (e) {
-      print('Failed to get BRDs from Firebase: $e');
-      // Fallback to local storage
-      return _getLocalBRDs();
-    }
-  }
-  
-  // Get BRDs from local storage
-  Future<List<Map<String, dynamic>>> _getLocalBRDs() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final brdsJson = prefs.getString('brds_backup') ?? '[]';
-      final brds = jsonDecode(brdsJson) as List<dynamic>;
-      
-      return brds.map((brd) => Map<String, dynamic>.from(brd as Map)).toList();
-    } catch (e) {
-      print('Failed to get BRDs from local storage: $e');
+      print('Error getting BRDs: $e');
       return [];
     }
   }
   
-  // Update an existing task estimate
-  Future<void> updateTaskEstimate(String estimateId, Map<String, dynamic> estimateData) async {
+  // Get recent documents
+  Future<List<Map<String, dynamic>>> getRecentDocuments() async {
     try {
-      await _dbRef.child('estimates/$estimateId').update(estimateData);
+      final QuerySnapshot snapshot = await _firestore
+          .collection('brds')
+          .where('userId', isEqualTo: _auth.currentUser?.uid)
+          .orderBy('createdAt', descending: true)
+          .limit(5)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => {
+                'id': doc.id,
+                ...doc.data() as Map<String, dynamic>,
+              })
+          .toList();
     } catch (e) {
-      print('Failed to update estimate in Firebase: $e');
-      rethrow;
+      print('Error getting recent documents: $e');
+      return [];
     }
   }
   
-  // Update BRD approval status
-  Future<void> updateBRDApprovalStatus(String brdId, String status, String reviewerUid, String? comments) async {
+  // Save new BRD
+  Future<void> saveBRD(Map<String, dynamic> brd) async {
     try {
-      await _dbRef.child('brds/$brdId').update({
-        'approvalStatus': status, // pending, approved, rejected
-        'reviewedAt': DateTime.now().toIso8601String(),
-        'reviewedBy': reviewerUid,
-        'comments': comments,
+      await _firestore.collection('brds').add({
+        ...brd,
+        'userId': _auth.currentUser?.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      print('Failed to update BRD status in Firebase: $e');
-      rethrow;
+      print('Error saving BRD: $e');
+      throw e;
     }
   }
   
-  // Add approved BRD to estimates
-  Future<void> addBRDToEstimates(String brdId) async {
+  // Update existing BRD
+  Future<void> updateBRD(String id, Map<String, dynamic> updates) async {
     try {
-      // First get the BRD
-      final snapshot = await _dbRef.child('brds/$brdId').get();
-      
-      if (snapshot.exists && snapshot.value != null) {
-        final dynamic rawData = snapshot.value;
-        if (rawData is Map) {
-          // Safely convert Map<dynamic, dynamic> to Map<String, dynamic>
-          final brdData = _convertToStringDynamicMap(rawData);
-          
-          // Create estimate data from BRD
-          final estimateData = {
-            'title': brdData['title'] ?? 'BRD Project',
-            'description': brdData['description'] ?? 'Generated from approved BRD',
-            'estimatedHours': brdData['estimatedHours'] ?? 100.0,
-            'baselineCost': brdData['baselineCost'] ?? 5000.0,
-            'suggestedRate': brdData['suggestedRate'] ?? 50.0,
-            'cumulativeEarnings': brdData['cumulativeEarnings'] ?? 10000.0,
-            'riskFactor': brdData['riskFactor'] ?? 'Medium',
-            'complexityLevel': brdData['complexityLevel'] ?? 'Medium',
-            'skillsRequired': brdData['skillsRequired'] ?? ['Programming'],
-            'costBreakdown': brdData['costBreakdown'] ?? {'Development': 5000.0},
-            'brdId': brdId, // Reference to the original BRD
-            'createdAt': DateTime.now().toIso8601String(),
-            'approved': true, // Auto-approve estimates created from approved BRDs
-          };
-          
-          // Save the estimate
-          await _dbRef.child('estimates').push().set(estimateData);
-          
-          // Update the BRD to indicate it's been added to estimates
-          await _dbRef.child('brds/$brdId').update({
-            'addedToEstimates': true,
-            'addedToEstimatesAt': DateTime.now().toIso8601String(),
-          });
-        }
-      }
+      await _firestore.collection('brds').doc(id).update({
+        ...updates,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      print('Failed to add BRD to estimates: $e');
-      rethrow;
+      print('Error updating BRD: $e');
+      throw e;
+    }
+  }
+  
+  // Delete BRD
+  Future<void> deleteBRD(String id) async {
+    try {
+      await _firestore.collection('brds').doc(id).delete();
+    } catch (e) {
+      print('Error deleting BRD: $e');
+      throw e;
+    }
+  }
+  
+  // Get BRD by ID
+  Future<Map<String, dynamic>?> getBRDById(String id) async {
+    try {
+      final DocumentSnapshot doc =
+          await _firestore.collection('brds').doc(id).get();
+      if (doc.exists) {
+        return {
+          'id': doc.id,
+          ...doc.data() as Map<String, dynamic>,
+        };
+      }
+      return null;
+    } catch (e) {
+      print('Error getting BRD by ID: $e');
+      throw e;
+    }
+  }
+  
+  // Get BRDs pending approval (admin only)
+  Future<List<Map<String, dynamic>>> getPendingBRDs() async {
+    try {
+      final QuerySnapshot snapshot = await _firestore
+          .collection('brds')
+          .where('approvalStatus', isEqualTo: 'pending')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => {
+                'id': doc.id,
+                ...doc.data() as Map<String, dynamic>,
+              })
+          .toList();
+    } catch (e) {
+      print('Error getting pending BRDs: $e');
+      return [];
+    }
+  }
+  
+  // Update BRD approval status (admin only)
+  Future<void> updateBRDApprovalStatus(
+      String id, String status, String? comments) async {
+    try {
+      await _firestore.collection('brds').doc(id).update({
+        'approvalStatus': status,
+        'approvalComments': comments,
+        'approvedBy': _auth.currentUser?.uid,
+        'approvedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error updating BRD approval status: $e');
+      throw e;
     }
   }
   

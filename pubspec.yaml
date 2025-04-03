@@ -1,5 +1,5 @@
-name: destinpq
-description: DestinPQ - BRD Generator and Estimator
+name: brd_generator
+description: A Business Requirements Document Generator
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.17.0 <3.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -30,27 +30,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  provider: ^6.0.5
+  http: ^1.1.0
   shared_preferences: ^2.2.0
-  url_launcher: ^6.1.12
+  flutter_dotenv: ^5.1.0
   cupertino_icons: ^1.0.2
   # Add a specific version of collection
   collection: ^1.17.0
-  http: ^1.0.0
-  dart_openai: ^5.1.0
-  flutter_markdown: ^0.6.15
-  path: ^1.8.3
-  flutter_staggered_animations: ^1.1.1
-  flutter_dotenv: ^5.1.0
-  uuid: ^4.0.0
-  firebase_core: ^2.17.0
-  firebase_database: ^10.3.0
-  firebase_auth: ^4.17.4
-  firebase_app_check: ^0.2.1+13
-  google_sign_in: ^6.2.1
-  file_picker: ^8.0.7
-  path_provider: ^2.1.2
-  intl: ^0.18.1
+  url_launcher: ^6.1.12
   # For stylus support (S Pen)
   flutter_drawing_board: ^0.4.4
   perfect_freehand: ^1.0.4
@@ -58,6 +44,23 @@ dependencies:
   table_calendar: ^3.0.9
   # For connectivity monitoring
   connectivity_plus: ^4.0.2
+  provider: ^6.0.5
+  path: ^1.8.3
+  flutter_staggered_animations: ^1.1.1
+  uuid: ^4.0.0
+  firebase_core: ^2.15.0
+  firebase_database: ^10.3.0
+  firebase_auth: ^4.7.2
+  firebase_app_check: ^0.2.1+13
+  google_sign_in: ^6.2.1
+  file_picker: ^8.0.7
+  path_provider: ^2.1.2
+  intl: ^0.18.1
+  flutter_markdown: ^0.6.17
+  cloud_firestore: ^4.8.4
+  # For PDF generation and printing (temporarily removed due to build issues)
+  # pdf: ^3.8.4
+  # printing: ^5.9.3
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +72,12 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^2.0.0
+
+# Force specific package versions
+dependency_overrides:
+  # printing: 5.9.3
+  http: 0.13.6
+  # pdf: 3.8.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

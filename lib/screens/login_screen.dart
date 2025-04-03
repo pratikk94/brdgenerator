@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -8,161 +9,88 @@ class LoginScreen extends StatefulWidget {
   _LoginScreenState createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final AuthService _authService = AuthService();
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  
-  // Controllers
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
-  
-  // State variables
   bool _isLoading = false;
-  bool _isLogin = true; // Toggle between login and register
+  bool _isSignUp = false;
   String? _errorMessage;
-  bool _obscurePassword = true;
-  
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
+    _animationController.forward();
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
-  
-  // Validate email format
-  bool _isValidEmail(String email) {
-    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-    return emailRegex.hasMatch(email);
-  }
-  
-  // Handle login with email and password
-  Future<void> _signInWithEmailPassword() async {
+
+  Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-    
+
     try {
-      // Use the clean sign-in method that handles reCAPTCHA and image data errors
-      final user = await _authService.cleanSignInWithEmailPassword(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-      );
+      final authService = Provider.of<AuthService>(context, listen: false);
       
-      if (mounted) {
-        if (user != null) {
-          // Login successful, navigate to home screen
-          Navigator.of(context).pushReplacementNamed('/home');
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Login failed. Please try again.';
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString();
-        });
-        
-        // If the error indicates an app restart is needed, show a more helpful message
-        if (e.toString().contains('restart the app')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Please close and restart the app to resolve authentication issues'),
-              duration: Duration(seconds: 8),
-              backgroundColor: Colors.amber.shade700,
-            ),
-          );
-        }
-      }
-    }
-  }
-  
-  // Handle registration with email and password
-  Future<void> _registerWithEmailPassword() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
-    try {
-      final user = await _authService.registerWithEmailPassword(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-        _nameController.text.trim(),
-      );
-      
-      if (mounted) {
-        if (user != null) {
-          // Registration successful, navigate to home screen
-          Navigator.of(context).pushReplacementNamed('/home');
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Registration failed. Please try again.';
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString();
-        });
-        
-        // If the error indicates an app restart is needed, show a more helpful message
-        if (e.toString().contains('restart the app')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Please close and restart the app to resolve authentication issues'),
-              duration: Duration(seconds: 8),
-              backgroundColor: Colors.amber.shade700,
-            ),
-          );
-        }
-      }
-    }
-  }
-  
-  // Handle password reset
-  Future<void> _resetPassword() async {
-    if (_emailController.text.isEmpty || !_isValidEmail(_emailController.text)) {
-      setState(() {
-        _errorMessage = 'Please enter a valid email address to reset your password';
-      });
-      return;
-    }
-    
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
-    try {
-      await _authService.resetPassword(_emailController.text.trim());
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Password reset email sent to ${_emailController.text}')),
+      if (_isSignUp) {
+        await authService.signUpWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
+          _emailController.text.split('@')[0],
         );
-        setState(() {
-          _isLoading = false;
-        });
+      } else {
+        await authService.signInWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
+        );
+      }
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
+      String errorMessage = 'An error occurred';
+      
+      if (e.toString().contains('invalid-credential')) {
+        errorMessage = 'Invalid email or password';
+      } else if (e.toString().contains('user-not-found')) {
+        errorMessage = 'No account found with this email';
+      } else if (e.toString().contains('wrong-password')) {
+        errorMessage = 'Incorrect password';
+      } else if (e.toString().contains('email-already-in-use')) {
+        errorMessage = 'An account already exists with this email';
+      } else if (e.toString().contains('weak-password')) {
+        errorMessage = 'Password is too weak';
+      } else if (e.toString().contains('network-request-failed')) {
+        errorMessage = 'Network error. Please check your internet connection';
+      }
+      
+      setState(() {
+        _errorMessage = errorMessage;
+      });
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = e.toString();
         });
       }
     }
@@ -174,270 +102,214 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
+              Colors.indigo.shade900,
               Colors.indigo.shade800,
-              Colors.indigo.shade500,
+              Colors.indigo.shade700,
             ],
           ),
         ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // App Logo
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    'DPQ',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.indigo,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                
-                // App Name
-                Text(
-                  'DestinPQ',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                
-                // Tagline
-                Text(
-                  'Professional BRDs & Cost Estimates',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white.withOpacity(0.8),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 48),
-                
-                // Login/Register Form
-                Card(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Card(
+                  elevation: 8,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(24.0),
+                    padding: const EdgeInsets.all(32.0),
                     child: Form(
                       key: _formKey,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Form Title
-                          Text(
-                            _isLogin ? 'Sign In' : 'Create Account',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.indigo.shade700,
-                            ),
-                            textAlign: TextAlign.center,
+                          const Icon(
+                            Icons.assessment_outlined,
+                            size: 64,
+                            color: Colors.indigo,
                           ),
-                          const SizedBox(height: 24),
-                          
-                          // Name Field (only for registration)
-                          if (!_isLogin) ...[
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: InputDecoration(
-                                labelText: 'Full Name',
-                                prefixIcon: Icon(Icons.person),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your name';
-                                }
-                                return null;
-                              },
+                          const SizedBox(height: 16),
+                          Text(
+                            'DestinPQ',
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              color: Colors.indigo,
+                              fontWeight: FontWeight.bold,
                             ),
-                            const SizedBox(height: 16),
-                          ],
-                          
-                          // Email Field
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'BRD Generator',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 32),
                           TextFormField(
                             controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
                               labelText: 'Email',
-                              prefixIcon: Icon(Icons.email),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
+                              prefixIcon: const Icon(Icons.email),
+                              filled: true,
+                              fillColor: Colors.grey[50],
                             ),
+                            keyboardType: TextInputType.emailAddress,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your email';
                               }
-                              if (!_isValidEmail(value)) {
+                              if (!value.contains('@')) {
                                 return 'Please enter a valid email';
                               }
                               return null;
                             },
                           ),
                           const SizedBox(height: 16),
-                          
-                          // Password Field
                           TextFormField(
                             controller: _passwordController,
-                            obscureText: _obscurePassword,
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              prefixIcon: Icon(Icons.lock),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                              ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
+                              prefixIcon: const Icon(Icons.lock),
+                              filled: true,
+                              fillColor: Colors.grey[50],
                             ),
+                            obscureText: true,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your password';
                               }
-                              if (!_isLogin && value.length < 6) {
+                              if (_isSignUp && value.length < 6) {
                                 return 'Password must be at least 6 characters';
                               }
                               return null;
                             },
                           ),
-                          
-                          // Error message
-                          if (_errorMessage != null) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              _errorMessage!,
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 14,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                          
                           const SizedBox(height: 24),
-                          
-                          // Submit Button
-                          ElevatedButton(
-                            onPressed: _isLoading 
-                                ? null 
-                                : (_isLogin 
-                                    ? _signInWithEmailPassword 
-                                    : _registerWithEmailPassword),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                          if (_errorMessage != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red[200]!),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.error_outline, color: Colors.red[700], size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: TextStyle(color: Colors.red[700]),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _handleSubmit,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.indigo,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 2,
+                              ),
                               child: _isLoading
-                                  ? SizedBox(
-                                      height: 20,
-                                      width: 20,
+                                  ? const SizedBox(
+                                      height: 24,
+                                      width: 24,
                                       child: CircularProgressIndicator(
+                                        color: Colors.white,
                                         strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                       ),
                                     )
                                   : Text(
-                                      _isLogin ? 'Sign In' : 'Create Account',
-                                      style: TextStyle(fontSize: 16),
+                                      _isSignUp ? 'Sign Up' : 'Sign In',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                             ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.indigo,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _isSignUp = !_isSignUp;
+                                      _errorMessage = null;
+                                    });
+                                  },
+                            child: Text(
+                              _isSignUp
+                                  ? 'Already have an account? Sign In'
+                                  : 'Don\'t have an account? Sign Up',
+                              style: const TextStyle(color: Colors.indigo),
                             ),
                           ),
-                          
-                          // Forgot Password
-                          if (_isLogin) ...[
-                            TextButton(
-                              onPressed: _isLoading ? null : _resetPassword,
-                              child: Text('Forgot Password?'),
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () async {
+                                    if (_emailController.text.isEmpty) {
+                                      setState(() {
+                                        _errorMessage = 'Please enter your email';
+                                      });
+                                      return;
+                                    }
+                                    try {
+                                      final authService =
+                                          Provider.of<AuthService>(context, listen: false);
+                                      await authService.resetPassword(_emailController.text);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Password reset email sent. Please check your inbox.',
+                                            ),
+                                            backgroundColor: Colors.green,
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      setState(() {
+                                        _errorMessage = e.toString();
+                                      });
+                                    }
+                                  },
+                            child: const Text(
+                              'Forgot Password?',
+                              style: TextStyle(color: Colors.indigo),
                             ),
-                          ],
-                          
-                          // Toggle Login/Register
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _isLogin 
-                                    ? "Don't have an account?" 
-                                    : "Already have an account?",
-                                style: TextStyle(
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: _isLoading
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _isLogin = !_isLogin;
-                                          _errorMessage = null;
-                                        });
-                                      },
-                                child: Text(
-                                  _isLogin ? 'Sign Up' : 'Sign In',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                
-                const SizedBox(height: 24),
-                
-                // Continue as guest button
-                TextButton(
-                  child: Text(
-                    'Continue as Guest',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          Navigator.of(context).pushReplacementNamed('/home');
-                        },
-                ),
-              ],
+              ),
             ),
           ),
         ),

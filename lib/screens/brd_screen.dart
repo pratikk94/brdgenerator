@@ -4,31 +4,40 @@ import '../data/plan_data.dart';
 class BRDScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final textScaleFactor = MediaQuery.of(context).textScaleFactor;
+    
     return Scaffold(
       appBar: AppBar(
         title: Text('Business Requirements'),
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '1. Business Requirements Document (BRD)',
-              style: TextStyle(
-                fontSize: 22.0,
-                fontWeight: FontWeight.bold,
+        padding: EdgeInsets.all(screenSize.width * 0.04),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 800),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '1. Business Requirements Document (BRD)',
+                style: TextStyle(
+                  fontSize: 22.0 * textScaleFactor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            SizedBox(height: 20.0),
-            _buildContentSection(context, PlanData.brd),
-          ],
+              SizedBox(height: screenSize.height * 0.025),
+              _buildContentSection(context, PlanData.brd),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildContentSection(BuildContext context, Map<String, dynamic> data) {
+    final textScaleFactor = MediaQuery.of(context).textScaleFactor;
+    final screenSize = MediaQuery.of(context).size;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: data.entries.map((entry) {
@@ -38,16 +47,16 @@ class BRDScreen extends StatelessWidget {
             Text(
               entry.key,
               style: TextStyle(
-                fontSize: 18.0,
+                fontSize: 18.0 * textScaleFactor,
                 fontWeight: FontWeight.w600,
                 color: Colors.indigo,
               ),
             ),
-            SizedBox(height: 10.0),
+            SizedBox(height: screenSize.height * 0.015),
             _buildContent(context, entry.value),
-            SizedBox(height: 20.0),
+            SizedBox(height: screenSize.height * 0.025),
             Divider(),
-            SizedBox(height: 10.0),
+            SizedBox(height: screenSize.height * 0.015),
           ],
         );
       }).toList(),
@@ -55,25 +64,31 @@ class BRDScreen extends StatelessWidget {
   }
 
   Widget _buildContent(BuildContext context, dynamic content) {
+    final textScaleFactor = MediaQuery.of(context).textScaleFactor;
+    final screenSize = MediaQuery.of(context).size;
+    
     if (content is String) {
       return Text(
         content,
-        style: TextStyle(fontSize: 16.0),
+        style: TextStyle(fontSize: 16.0 * textScaleFactor),
       );
     } else if (content is List) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: content.map((item) {
           return Padding(
-            padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+            padding: EdgeInsets.only(
+              left: screenSize.width * 0.04,
+              bottom: screenSize.height * 0.01
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('• '),
+                Text('• ', style: TextStyle(fontSize: 16.0 * textScaleFactor)),
                 Expanded(
                   child: Text(
                     item,
-                    style: TextStyle(fontSize: 16.0),
+                    style: TextStyle(fontSize: 16.0 * textScaleFactor),
                   ),
                 ),
               ],
@@ -86,7 +101,10 @@ class BRDScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: content.entries.map((item) {
           return Padding(
-            padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+            padding: EdgeInsets.only(
+              left: screenSize.width * 0.04,
+              bottom: screenSize.height * 0.01
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -94,13 +112,13 @@ class BRDScreen extends StatelessWidget {
                   item.key,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 16.0,
+                    fontSize: 16.0 * textScaleFactor,
                   ),
                 ),
-                SizedBox(height: 4.0),
+                SizedBox(height: screenSize.height * 0.005),
                 Text(
                   item.value.toString(),
-                  style: TextStyle(fontSize: 15.0),
+                  style: TextStyle(fontSize: 15.0 * textScaleFactor),
                 ),
               ],
             ),

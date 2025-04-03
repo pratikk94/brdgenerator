@@ -6,8 +6,10 @@ import 'dart:async';
 import '../utils/google_signin_fix.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
-class AuthService {
+class AuthService extends ChangeNotifier {
   // Firebase Auth instance
   final FirebaseAuth _auth = FirebaseAuth.instance;
   
@@ -19,6 +21,21 @@ class AuthService {
   // Firebase service for user data management
   final FirebaseService _firebaseService = FirebaseService();
   
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  bool _isInitialized = false;
+  
+  AuthService() {
+    // Initialize immediately with current auth state
+    _isInitialized = true;
+    notifyListeners();
+    
+    // Listen for auth state changes
+    _auth.authStateChanges().listen((User? user) {
+      notifyListeners();
+    });
+  }
+  
   // Current user stream
   Stream<User?> get user => _auth.authStateChanges();
   
@@ -28,13 +45,24 @@ class AuthService {
   // Check if user is logged in
   bool get isLoggedIn => _auth.currentUser != null;
   
+  // Check if auth is initialized
+  bool get isInitialized => _isInitialized;
+  
   // Check if current user is admin
   Future<bool> isCurrentUserAdmin() async {
-    final user = _auth.currentUser;
-    if (user != null) {
-      return await _firebaseService.isUserAdmin(user.uid);
+    try {
+      if (_auth.currentUser == null) return false;
+
+      final userDoc = await _firestore
+          .collection('users')
+          .doc(_auth.currentUser?.uid)
+          .get();
+
+      return userDoc.data()?['role'] == 'admin';
+    } catch (e) {
+      print('Error checking admin status: $e');
+      return false;
     }
-    return false;
   }
   
   // Helper method to interpret PlatformException error codes
@@ -74,6 +102,7 @@ class AuthService {
         });
         
         print('Successfully signed in: ${user.displayName}');
+        notifyListeners();
         return user;
       }
       
@@ -84,86 +113,42 @@ class AuthService {
     }
   }
   
-  // Clean login attempt - use this for a fresh authentication attempt
-  Future<User?> cleanSignInWithEmailPassword(String email, String password) async {
+  // Clean sign in method that handles cache clearing
+  Future<UserCredential> cleanSignInWithEmailAndPassword(String email, String password) async {
     try {
-      // Clear all caches and tokens first
-      await _clearAllCaches();
+      // Clear any cached data before attempting sign in
+      await _auth.signOut();
       
-      // Get a fresh App Check token
-      await _refreshAppCheckToken();
-      
-      // Now try signing in
-      return await signInWithEmailPassword(email, password);
+      // Attempt sign in with cleared cache
+      return await signInWithEmailAndPassword(email, password);
     } catch (e) {
-      print('Clean sign-in attempt failed: $e');
+      print('Error in clean sign in: $e');
       rethrow;
     }
   }
   
   // Sign in with email and password
-  Future<User?> signInWithEmailPassword(String email, String password) async {
+  Future<UserCredential> signInWithEmailAndPassword(
+      String email, String password) async {
     try {
-      // Make sure to use the proper configuration for email/password authentication
-      final UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
+      // Clear any cached data before attempting sign in
+      await _clearAllCaches();
+      
+      final result = await _auth.signInWithEmailAndPassword(
+        email: email,
         password: password,
       );
-      
-      final User? user = userCredential.user;
-      
-      if (user != null) {
-        // Update last login timestamp
-        await _firebaseService.saveUserInfo(user.uid, {
-          'lastLogin': DateTime.now().toIso8601String(),
-        });
-        
-        print('Successfully signed in with email: ${user.email}');
-      }
-      
-      return user;
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = 'An error occurred during sign-in';
-      
-      if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email';
-      } else if (e.code == 'wrong-password') {
-        errorMessage = 'Incorrect password';
-      } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email format';
-      } else if (e.code == 'user-disabled') {
-        errorMessage = 'This account has been disabled';
-      } else if (e.code == 'too-many-requests') {
-        errorMessage = 'Too many attempts. Please try again later';
-      } else if (e.code == 'network-request-failed') {
-        errorMessage = 'Network error. Please check your connection';
-      } else if (e.code.contains('recaptcha') || e.code.contains('captcha')) {
-        // Handle reCAPTCHA verification errors more specifically
-        errorMessage = 'Security verification failed. Please try again';
-        print('reCAPTCHA issue: ${e.code} - ${e.message}');
-        
-        // Clear cached reCAPTCHA tokens and try to force refresh
-        await _clearReCaptchaCache();
-      } else if (e.message?.contains('invalid-image-data') == true || e.message?.contains('invalid image data') == true) {
-        // Handle the "invalid image data" error
-        errorMessage = 'App verification error. Please restart the app and try again';
-        print('Invalid image data error: ${e.code} - ${e.message}');
-        await _clearAllCaches();
-      }
-      
-      print('Error signing in with email/password: $errorMessage (${e.code})');
-      throw errorMessage;
+
+      // Update last login timestamp
+      await _firestore.collection('users').doc(result.user?.uid).update({
+        'lastLogin': FieldValue.serverTimestamp(),
+      });
+
+      notifyListeners();
+      return result;
     } catch (e) {
-      print('Error signing in with email/password: $e');
-      
-      // Check if it's the "invalid image data" error
-      if (e.toString().contains('invalid-image-data') || 
-          e.toString().contains('invalid image data')) {
-        await _clearAllCaches();
-        throw 'App verification error. Please restart the app and try again';
-      }
-      
-      throw 'Failed to sign in. Please try again.';
+      print('Error signing in: $e');
+      rethrow;
     }
   }
   
@@ -236,58 +221,31 @@ class AuthService {
     }
   }
   
-  // Register with email and password
-  Future<User?> registerWithEmailPassword(String email, String password, String displayName) async {
+  // Sign up with email and password
+  Future<UserCredential> signUpWithEmailAndPassword(
+      String email, String password, String displayName) async {
     try {
-      // Clear caches for a clean registration attempt
-      await _clearAllCaches();
-      
-      final UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      
-      final User? user = userCredential.user;
-      
-      if (user != null) {
-        // Update profile with display name
-        await user.updateDisplayName(displayName);
-        
-        // Save user info to Firebase
-        await _firebaseService.saveUserInfo(user.uid, {
-          'displayName': displayName,
-          'email': email,
-          'lastLogin': DateTime.now().toIso8601String(),
-        });
-        
-        print('Successfully registered: $displayName');
-      }
-      
-      return user;
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = 'Registration failed';
-      
-      if (e.code == 'email-already-in-use') {
-        errorMessage = 'An account already exists with this email';
-      } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email format';
-      } else if (e.code == 'weak-password') {
-        errorMessage = 'The password is too weak';
-      } else if (e.code == 'operation-not-allowed') {
-        errorMessage = 'Email/password accounts are not enabled';
-      } else if (e.code.contains('recaptcha') || e.code.contains('captcha')) {
-        errorMessage = 'Security verification failed. Please try again';
-        await _clearReCaptchaCache();
-      } else if (e.message?.contains('invalid-image-data') == true || e.message?.contains('invalid image data') == true) {
-        errorMessage = 'App verification error. Please restart the app and try again';
-        await _clearAllCaches();
-      }
-      
-      print('Error registering with email/password: $errorMessage');
-      throw errorMessage;
+
+      // Update display name
+      await userCredential.user?.updateDisplayName(displayName);
+
+      // Create user document in Firestore
+      await _firestore.collection('users').doc(userCredential.user?.uid).set({
+        'email': email,
+        'displayName': displayName,
+        'role': 'user',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      notifyListeners();
+      return userCredential;
     } catch (e) {
-      print('Error registering with email/password: $e');
-      throw 'Registration failed. Please try again.';
+      print('Error signing up: $e');
+      rethrow;
     }
   }
   
@@ -295,20 +253,9 @@ class AuthService {
   Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = 'Failed to send password reset email';
-      
-      if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email';
-      } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email format';
-      }
-      
-      print('Error resetting password: $errorMessage');
-      throw errorMessage;
     } catch (e) {
       print('Error resetting password: $e');
-      throw 'Failed to send reset email. Please try again.';
+      rethrow;
     }
   }
   
@@ -317,6 +264,7 @@ class AuthService {
     try {
       await _googleSignIn.signOut();
       await _auth.signOut();
+      notifyListeners();
     } catch (e) {
       print('Error signing out: $e');
     }
@@ -375,6 +323,51 @@ class AuthService {
       }
     } catch (e) {
       print('Error creating test account: $e');
+    }
+  }
+
+  // Update user profile
+  Future<void> updateUserProfile({String? displayName, String? photoURL}) async {
+    try {
+      if (_auth.currentUser == null) return;
+
+      if (displayName != null) {
+        await _auth.currentUser?.updateDisplayName(displayName);
+        await _firestore
+            .collection('users')
+            .doc(_auth.currentUser?.uid)
+            .update({'displayName': displayName});
+      }
+
+      if (photoURL != null) {
+        await _auth.currentUser?.updatePhotoURL(photoURL);
+        await _firestore
+            .collection('users')
+            .doc(_auth.currentUser?.uid)
+            .update({'photoURL': photoURL});
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('Error updating user profile: $e');
+      rethrow;
+    }
+  }
+
+  // Get user role
+  Future<String> getUserRole() async {
+    try {
+      if (_auth.currentUser == null) return 'guest';
+
+      final userDoc = await _firestore
+          .collection('users')
+          .doc(_auth.currentUser?.uid)
+          .get();
+
+      return userDoc.data()?['role'] ?? 'user';
+    } catch (e) {
+      print('Error getting user role: $e');
+      return 'user';
     }
   }
 } 

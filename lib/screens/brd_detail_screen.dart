@@ -1,448 +1,227 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
-import 'package:intl/intl.dart';
+import '../services/auth_service.dart';
 
-class BrdDetailScreen extends StatefulWidget {
-  final String brdId;
-  
-  const BrdDetailScreen({
-    Key? key,
-    required this.brdId,
-  }) : super(key: key);
-  
+class BRDDetailScreen extends StatefulWidget {
+  const BRDDetailScreen({Key? key}) : super(key: key);
+
   @override
-  _BrdDetailScreenState createState() => _BrdDetailScreenState();
+  _BRDDetailScreenState createState() => _BRDDetailScreenState();
 }
 
-class _BrdDetailScreenState extends State<BrdDetailScreen> with SingleTickerProviderStateMixin {
+class _BRDDetailScreenState extends State<BRDDetailScreen> {
   final FirebaseService _firebaseService = FirebaseService();
-  Map<String, dynamic>? _brdData;
+  final AuthService _authService = AuthService();
+  Map<String, dynamic>? _brd;
   bool _isLoading = true;
-  late TabController _tabController;
-  
+  bool _isAdmin = false;
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _loadBrdData();
+    _loadBRD();
   }
-  
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+
+  Future<void> _loadBRD() async {
+    try {
+      final String brdId = ModalRoute.of(context)!.settings.arguments as String;
+      final brd = await _firebaseService.getBRDById(brdId);
+      final isAdmin = await _authService.isCurrentUserAdmin();
+
+      if (mounted) {
+        setState(() {
+          _brd = brd;
+          _isAdmin = isAdmin;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
   }
-  
-  Future<void> _loadBrdData() async {
+
+  Future<void> _handleApproval(String status, String? comments) async {
+    if (!_isAdmin) return;
+
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
-      final brds = await _firebaseService.getAllBRDs();
-      for (final brd in brds) {
-        if (brd['id'] == widget.brdId) {
-          setState(() {
-            _brdData = brd;
-            _isLoading = false;
-          });
-          return;
-        }
-      }
-      
-      // BRD not found
-      setState(() {
-        _isLoading = false;
-      });
+      await _firebaseService.updateBRDApprovalStatus(
+        _brd!['id'] as String,
+        status,
+        comments,
+      );
+      await _loadBRD();
     } catch (e) {
-      print('Error loading BRD data: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_brdData != null ? (_brdData!['title'] as String? ?? 'BRD Details') : 'BRD Details'),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'OVERVIEW'),
-            Tab(text: 'REQUIREMENTS'),
-            Tab(text: 'FINANCIALS'),
-            Tab(text: 'TIMELINE'),
-          ],
-        ),
+        title: Text(_brd?['title'] as String? ?? 'BRD Details'),
+        actions: [
+          if (_isAdmin && _brd != null)
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                switch (value) {
+                  case 'approve':
+                    _showApprovalDialog('approve');
+                    break;
+                  case 'reject':
+                    _showApprovalDialog('reject');
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'approve',
+                  child: Text('Approve BRD'),
+                ),
+                const PopupMenuItem(
+                  value: 'reject',
+                  child: Text('Reject BRD'),
+                ),
+              ],
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _brdData == null
-              ? const Center(child: Text('BRD not found'))
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildOverviewTab(),
-                    _buildRequirementsTab(),
-                    _buildFinancialsTab(),
-                    _buildTimelineTab(),
-                  ],
-                ),
+          : _errorMessage != null
+              ? Center(child: Text(_errorMessage!))
+              : _brd == null
+                  ? const Center(child: Text('BRD not found'))
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildStatusChip(),
+                          const SizedBox(height: 16),
+                          _buildSection('Title', _brd!['title'] as String?),
+                          _buildSection(
+                              'Description', _brd!['description'] as String?),
+                          _buildSection('Business Objectives',
+                              _brd!['businessObjectives'] as String?),
+                          _buildSection('Scope', _brd!['scope'] as String?),
+                          _buildSection(
+                              'Stakeholders', _brd!['stakeholders'] as String?),
+                          _buildSection('Functional Requirements',
+                              _brd!['functionalRequirements'] as String?),
+                          _buildSection('Non-Functional Requirements',
+                              _brd!['nonFunctionalRequirements'] as String?),
+                          _buildSection('Assumptions and Constraints',
+                              _brd!['assumptionsConstraints'] as String?),
+                          _buildSection(
+                              'Risk Analysis', _brd!['riskAnalysis'] as String?),
+                          _buildSection('Timeline', _brd!['timeline'] as String?),
+                          _buildSection('Glossary', _brd!['glossary'] as String?),
+                          _buildSection('Sign-off', _brd!['signOff'] as String?),
+                          if (_brd!['approvalComments'] != null) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Approval Comments:',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(_brd!['approvalComments'] as String),
+                          ],
+                        ],
+                      ),
+                    ),
     );
   }
-  
-  Widget _buildOverviewTab() {
-    if (_brdData == null) return const SizedBox.shrink();
-    
-    final createdAt = DateTime.parse(_brdData!['createdAt'] as String);
-    final formattedDate = DateFormat('MMMM d, yyyy').format(createdAt);
-    final status = _brdData!['approvalStatus'] as String? ?? 'pending';
-    final description = _brdData!['description'] as String? ?? 'No description available';
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _brdData!['title'] as String? ?? 'Untitled BRD',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Created on $formattedDate',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Chip(
-                        label: Text(status.toUpperCase()),
-                        backgroundColor: status == 'approved' 
-                            ? Colors.green.shade100 
-                            : (status == 'rejected' ? Colors.red.shade100 : Colors.grey.shade100),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  const Text(
-                    'Project Description',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(description),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 2,
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Project Details',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDetailRow('Project Type', _brdData!['projectType'] as String? ?? 'Not specified'),
-                  _buildDetailRow('Industry', _brdData!['industry'] as String? ?? 'Not specified'),
-                  _buildDetailRow('Client', _brdData!['client'] as String? ?? 'Not specified'),
-                  _buildDetailRow('Priority', _brdData!['priority'] as String? ?? 'Medium'),
-                  _buildDetailRow('Budget', '\$${_brdData!['budget'] ?? 'Not specified'}'),
-                ],
-              ),
-            ),
-          ),
-          if (status == 'rejected' && _brdData!['comments'] != null) ...[
+
+  Widget _buildStatusChip() {
+    final status = _brd!['approvalStatus'] as String? ?? 'pending';
+    final color = status == 'approved'
+        ? Colors.green
+        : (status == 'rejected' ? Colors.red : Colors.grey);
+
+    return Chip(
+      label: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: color.shade900,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      backgroundColor: color.shade100,
+    );
+  }
+
+  Widget _buildSection(String title, String? content) {
+    if (content == null || content.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          title,
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(content),
+      ],
+    );
+  }
+
+  Future<void> _showApprovalDialog(String action) async {
+    final commentsController = TextEditingController();
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${action.substring(0, 1).toUpperCase()}${action.substring(1)} BRD'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Are you sure you want to $action this BRD?'),
             const SizedBox(height: 16),
-            Card(
-              elevation: 2,
-              margin: EdgeInsets.zero,
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Rejection Comments',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(_brdData!['comments'] as String),
-                  ],
-                ),
+            TextField(
+              controller: commentsController,
+              decoration: const InputDecoration(
+                labelText: 'Comments',
+                border: OutlineInputBorder(),
               ),
+              maxLines: 3,
             ),
           ],
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildRequirementsTab() {
-    if (_brdData == null) return const SizedBox.shrink();
-    
-    final requirements = _brdData!['requirements'] as List<dynamic>? ?? [];
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Business Requirements',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (requirements.isEmpty)
-                    const Text('No requirements specified')
-                  else
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: requirements.length,
-                      itemBuilder: (context, index) {
-                        final requirement = requirements[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.indigo,
-                              child: Text('${index + 1}', style: const TextStyle(color: Colors.white)),
-                            ),
-                            title: Text(requirement['title'] as String? ?? 'Requirement'),
-                            subtitle: Text(requirement['description'] as String? ?? ''),
-                          ),
-                        );
-                      },
-                    ),
-                ],
-              ),
-            ),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
           ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildFinancialsTab() {
-    if (_brdData == null) return const SizedBox.shrink();
-    
-    final cumulativeEarnings = _brdData!['cumulativeEarnings'] as num? ?? 0.0;
-    final baselineCost = _brdData!['baselineCost'] as num? ?? 0.0;
-    final profit = cumulativeEarnings - baselineCost;
-    final profitMargin = cumulativeEarnings > 0 ? (profit / cumulativeEarnings * 100) : 0.0;
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Financial Summary',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildFinancialRow('Cumulative Earnings', '\$${cumulativeEarnings.toStringAsFixed(2)}', Colors.green),
-                  _buildFinancialRow('Baseline Cost', '\$${baselineCost.toStringAsFixed(2)}', Colors.red),
-                  _buildFinancialRow('Profit', '\$${profit.toStringAsFixed(2)}', profit >= 0 ? Colors.green : Colors.red),
-                  _buildFinancialRow('Profit Margin', '${profitMargin.toStringAsFixed(1)}%', 
-                    profitMargin >= 30 ? Colors.green : (profitMargin >= 15 ? Colors.orange : Colors.red)),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildTimelineTab() {
-    if (_brdData == null) return const SizedBox.shrink();
-    
-    final timeline = _brdData!['timeline'] as Map<String, dynamic>? ?? {};
-    final startDate = timeline['startDate'] as String? ?? 'Not specified';
-    final endDate = timeline['endDate'] as String? ?? 'Not specified';
-    final duration = timeline['duration'] as String? ?? 'Not specified';
-    final milestones = timeline['milestones'] as List<dynamic>? ?? [];
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Project Timeline',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDetailRow('Start Date', startDate),
-                  _buildDetailRow('End Date', endDate),
-                  _buildDetailRow('Duration', duration),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (milestones.isNotEmpty) 
-            Card(
-              elevation: 2,
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Milestones',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: milestones.length,
-                      itemBuilder: (context, index) {
-                        final milestone = milestones[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.amber,
-                              child: Icon(Icons.flag, color: Colors.white),
-                            ),
-                            title: Text(milestone['title'] as String? ?? 'Milestone'),
-                            subtitle: Text(milestone['date'] as String? ?? 'Date not specified'),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildFinancialRow(String label, String value, Color valueColor) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: valueColor,
-            ),
+          ElevatedButton(
+            child: Text(action.substring(0, 1).toUpperCase() + action.substring(1)),
+            onPressed: () {
+              Navigator.pop(context);
+              _handleApproval(action, commentsController.text);
+            },
           ),
         ],
       ),
